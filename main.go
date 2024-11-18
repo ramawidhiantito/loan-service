@@ -8,6 +8,7 @@ import (
 	"loan-service/internal/domain/loan"
 	"loan-service/internal/infrastructure/database"
 	"loan-service/internal/infrastructure/database/seeder"
+	"loan-service/internal/infrastructure/kafka"
 	"loan-service/internal/infrastructure/logger"
 	"loan-service/internal/interfaces"
 
@@ -30,18 +31,30 @@ func main() {
 	}
 	seeder.Seeder(db)
 
-	// Initialize the repository and loan service
-	loanRepository := loan.NewLoanRepository(db)
-	loanService := loan.NewLoanService(loanRepository)
+	// Kafka brokers and topic
+	brokers := []string{"localhost:9092"}
+	topic := "loan-invested"
 
-	// Initialize the use case, injecting the service and Kafka producer
+	if err := kafka.CreateTopic(brokers, topic, 1, 1); err != nil {
+		log.Printf("Error creating topic '%s': %v", topic, err)
+	}
+
+	kafkaProducer := kafka.NewKafkaProducer(brokers, topic)
+	defer kafkaProducer.Close()
+
+	consumer := kafka.NewKafkaConsumer(brokers, topic, "")
+
+	go consumer.ConsumeMessages()
+
+	//init repo,service and usecase
+	loanRepository := loan.NewLoanRepository(db, kafkaProducer)
+	loanService := loan.NewLoanService(loanRepository)
 	loanUseCase := application.NewLoanUseCase(loanService)
 
-	// Initialize HTTP router and handlers
+	// Router
 	router := mux.NewRouter()
 	loanHandler := interfaces.NewLoanHandler(loanUseCase)
 
-	// Set up routes
 	router.HandleFunc("/loan/create", loanHandler.CreateLoan).Methods("POST")
 	router.HandleFunc("/loan/approve", loanHandler.ApproveLoan).Methods("POST")
 	router.HandleFunc("/loan/list", loanHandler.GetListLoan).Methods("GET")

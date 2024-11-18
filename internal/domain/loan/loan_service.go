@@ -40,7 +40,6 @@ func (s *LoanService) GetLoansByState(state string) ([]*Loan, error) {
 	}
 }
 
-// Business logic for approving a loan
 func (s *LoanService) ApproveLoan(loanID int, details ApprovalDetails) (*Loan, error) {
 	loan, err := s.repo.GetByID(loanID)
 	if err != nil {
@@ -63,7 +62,6 @@ func (s *LoanService) ApproveLoan(loanID int, details ApprovalDetails) (*Loan, e
 	return loan, nil
 }
 
-// Business logic for disbursing a loan
 func (s *LoanService) DisburseLoan(loanID int, details DisbursementDetails) (*Loan, error) {
 	loan, err := s.repo.GetByID(loanID)
 	if err != nil {

@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -21,9 +22,9 @@ func NewKafkaProducer(broker []string, topic string) *KafkaProducer {
 	return &KafkaProducer{writer: writer}
 }
 
-func (p *KafkaProducer) ProduceMessage(message string) error {
-	err := p.writer.WriteMessages(nil, kafka.Message{
-		Value: []byte(message),
+func (p *KafkaProducer) Publish(message []byte) error {
+	err := p.writer.WriteMessages(context.Background(), kafka.Message{
+		Value: message,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to send message to Kafka: %w", err)

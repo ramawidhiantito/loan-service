@@ -1,8 +1,10 @@
 package loan
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"loan-service/internal/infrastructure/kafka"
 
 	"gorm.io/gorm"
 )
@@ -15,11 +17,15 @@ type ILoanRepository interface {
 }
 
 type LoanRepository struct {
-	DB *gorm.DB
+	DB       *gorm.DB
+	Producer *kafka.KafkaProducer
 }
 
-func NewLoanRepository(db *gorm.DB) ILoanRepository {
-	return &LoanRepository{DB: db}
+func NewLoanRepository(db *gorm.DB, kafkaProducer *kafka.KafkaProducer) ILoanRepository {
+	return &LoanRepository{
+		DB:       db,
+		Producer: kafkaProducer,
+	}
 }
 
 func (r *LoanRepository) GetByID(loanID int) (*Loan, error) {
@@ -55,18 +61,16 @@ func (r *LoanRepository) InvestInLoan(loanID int, investorID int, amount float64
 	tx := r.DB.Begin()
 	defer tx.Rollback()
 
-	// Lock the loan row for the duration of the transaction
+	//Lock
 	var loan Loan
 	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&loan, "id = ?", loanID).Error; err != nil {
 		return fmt.Errorf("loan not found or could not lock loan: %v", err)
 	}
 
-	// Check if the total invested amount exceeds the principal
 	if loan.TotalInvested+amount > loan.PrincipalAmount {
 		return fmt.Errorf("investment exceeds loan principal amount")
 	}
 
-	// Create a new investment record
 	investment := Investment{
 		LoanID:     loanID,
 		InvestorID: investorID,
@@ -76,12 +80,24 @@ func (r *LoanRepository) InvestInLoan(loanID int, investorID int, amount float64
 		return fmt.Errorf("could not add investment: %v", err)
 	}
 
-	// Update the loan's total invested amount
 	loan.TotalInvested += amount
 
 	if loan.TotalInvested == loan.PrincipalAmount {
 		loan.State = Invested
+
+		//Push event to kafka
+		event := map[string]interface{}{
+			"loan_id": loan.ID,
+		}
+		eventData, err := json.Marshal(event)
+		if err != nil {
+			return fmt.Errorf("failed to serialize event: %v", err)
+		}
+		if err := r.Producer.Publish(eventData); err != nil {
+			return fmt.Errorf("failed to publish Kafka event: %v", err)
+		}
 	}
+
 	if err := tx.Save(&loan).Error; err != nil {
 		return fmt.Errorf("could not update loan total invested: %v", err)
 	}
